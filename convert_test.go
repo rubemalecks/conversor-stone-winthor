@@ -42,7 +42,7 @@ func TestConverter(t *testing.T) {
 		"123456;Venda;30/10/2026 15:00:00;02/12/2026;Visa;Crédito;222;3;2;100,000000;97,500000;Pago\n" +
 		"123456;Venda;30/10/2026 16:00:00;01/12/2026;Elo;Débito;333;1;1;50,000000;49,000000;Pago\n" +
 		"123456;Cancelamento;30/10/2026 17:00:00;01/12/2026;Elo;Débito;333;1;1;-50,000000;-49,000000;Pago\n" +
-		"123456;Venda;30/10/2026 18:00:00;01/12/2026;Amex;Crédito;444;1;1;10,000000;9,000000;Pago\n" +
+		"123456;Venda;30/10/2026 18:00:00;01/12/2026;Sorocred;Crédito;444;1;1;10,000000;9,000000;Pago\n" +
 		"123456;Venda;30/10/2026 18:00:00;02/12/2026;Visa;Crédito;555;1;1;10,000000;9,000000;Previsto\n"
 	dir := t.TempDir()
 	origem := filepath.Join(dir, "stone.csv")
@@ -94,6 +94,47 @@ func TestConverter(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "stone-conferencia.csv")); err != nil {
 		t.Errorf("conferencia nao gravada: %v", err)
+	}
+}
+
+// Amex, debito (campo 16 = D) e cancelamento de venda de outro periodo.
+func TestBandeirasProdutoECancelOutroPeriodo(t *testing.T) {
+	csv := "STONECODE;CATEGORIA;DATA DA VENDA;DATA DE VENCIMENTO;BANDEIRA;PRODUTO;STONE ID;QTD DE PARCELAS;Nº DA PARCELA;VALOR BRUTO;VALOR LÍQUIDO;ÚLTIMO STATUS\n" +
+		"1;Venda;30/10/2026 10:00:00;04/11/2026;AmericanExpress;Credito;A1;1;1;105,280000;102,963840;Pago\n" +
+		"1;Venda;30/10/2026 10:00:00;04/11/2026;Visa;Debito Pre-pago;D1;1;1;10,000000;9,900000;Pago\n" +
+		"1;Venda;30/10/2026 10:00:00;04/11/2026;Elo;Credito Pre-pago;C1;1;1;10,000000;9,800000;Pago\n" +
+		"1;Cancelamento;01/11/2026 10:00:00;04/11/2026;MasterCard;Credito;X9;2;1;-296,690000;-290,311165;Pago\n" +
+		"1;Balanceamento de Saldo;01/11/2026 10:00:00;04/11/2026;MasterCard;Credito;;1;1;290,310000;290,310000;Pago\n"
+	dir := t.TempDir()
+	origem := filepath.Join(dir, "nov.csv")
+	os.WriteFile(origem, []byte(csv), 0o644)
+	res, err := Converter(origem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Arquivos) != 1 || res.Arquivos[0].Parcelas != 3 {
+		t.Fatalf("esperava 1 arquivo com 3 parcelas: %+v", res.Arquivos)
+	}
+	quer := map[string][2]string{"A1": {"C", "0001"}, "D1": {"D", "0008"}, "C1": {"C", "0004"}}
+	for _, l := range strings.Split(strings.TrimSpace(string(res.Arquivos[0].Conteudo)), "\n") {
+		reg := strings.Split(strings.Trim(l, `"`), `";"`)
+		if reg[0] != "10" {
+			continue
+		}
+		q := quer[reg[6]]
+		if reg[15] != q[0] || reg[26] != q[1] || reg[17] != "369" {
+			t.Errorf("%s: produto=%s bandeira=%s rede=%s; quer %v e rede 369", reg[6], reg[15], reg[26], reg[17], q)
+		}
+	}
+	if res.CancelOutroPeriodo != 1 {
+		t.Errorf("esperava 1 cancelamento de outro período, veio %d", res.CancelOutroPeriodo)
+	}
+	if !strings.HasPrefix(strings.SplitN(string(res.confConteudo), "\r\n", 3)[1], "\"ATENÇÃO") &&
+		!strings.HasPrefix(strings.SplitN(string(res.confConteudo), "\r\n", 3)[1], "ATENÇÃO") {
+		t.Errorf("o cancelamento de outro período deveria estar no topo da conferência:\n%s", res.confConteudo)
+	}
+	if !strings.Contains(res.Resumo(), "estornar no WinThor") {
+		t.Errorf("resumo sem o aviso de estorno: %s", res.Resumo())
 	}
 }
 

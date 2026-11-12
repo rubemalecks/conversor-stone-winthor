@@ -14,8 +14,45 @@ import (
 	"unicode/utf8"
 )
 
-// Codigo da bandeira no padrao 4.1 (layout 1 - SOFTWARE EXPRESS da rotina 1503).
-var bandeiras = map[string]string{"mastercard": "0007", "visa": "0008", "elo": "0004"}
+// Codigo da bandeira (campo 27) conforme a Tabela II do layout de retorno 4.1 da
+// Software Express/Fiserv. A chave e o nome da bandeira no CSV da Stone, normalizado
+// (minusculas, sem acentos e sem espacos).
+var bandeiras = map[string]string{
+	"americanexpress": "0001", "amex": "0001",
+	"cabal":  "0002",
+	"diners": "0003", "dinersclub": "0003",
+	"elo":       "0004",
+	"hipercard": "0005", "hiper": "0005",
+	"mastercard": "0007", "master": "0007",
+	"visa": "0008",
+	"jcb":  "0030",
+}
+
+// Codigo da rede Stone (campo 18) na Tabela I do layout 4.1.
+const redeStone = "369"
+
+// normaliza deixa o texto em minusculas, sem acentos e sem espacos.
+var semAcento = strings.NewReplacer("á", "a", "à", "a", "â", "a", "ã", "a", "é", "e", "ê", "e",
+	"í", "i", "ó", "o", "ô", "o", "õ", "o", "ú", "u", "ç", "c", " ", "", "-", "", "_", "")
+
+func normaliza(s string) string {
+	return semAcento.Replace(strings.ToLower(strings.TrimSpace(s)))
+}
+
+// tipoProduto devolve o campo 16 do layout: C (credito) ou D (debito).
+// Pre-pago segue o tipo base ("Debito Pre-pago" -> D).
+func tipoProduto(produto string) (string, bool) {
+	p := normaliza(produto)
+	switch {
+	case strings.HasPrefix(p, "debito"):
+		return "D", true
+	case strings.HasPrefix(p, "credito"):
+		return "C", true
+	}
+	return "", false
+}
+
+const motivoCancelOutro = "ATENÇÃO: cancelamento de venda paga em outro período - estornar a baixa no WinThor"
 
 var colunasStone = []string{"STONECODE", "CATEGORIA", "DATA DA VENDA", "DATA DE VENCIMENTO",
 	"BANDEIRA", "PRODUTO", "STONE ID", "QTD DE PARCELAS", "Nº DA PARCELA",
@@ -51,6 +88,10 @@ type Resultado struct {
 	NaoConvert   int
 	Motivos      map[string]int
 	LinhasStone  int
+
+	// CancelOutroPeriodo conta cancelamentos cuja venda nao esta no CSV
+	// (venda ja paga e baixada antes): exigem estorno manual no WinThor.
+	CancelOutroPeriodo int
 }
 
 // GravarConferencia salva, na pasta indicada, o CSV com as linhas que ficaram de fora.
@@ -234,19 +275,42 @@ func Converter(caminho string) (*Resultado, error) {
 	var conf [][]string
 
 	// Vendas canceladas integralmente: mesmo Stone ID, parcela e valor de um cancelamento.
+	// Guarda tambem as vendas do CSV, para achar cancelamentos de vendas de outro periodo.
+	chave := func(s map[string]string, v int64) string {
+		return fmt.Sprintf("%s|%s|%d", s["STONE ID"], s["Nº DA PARCELA"], v)
+	}
 	cancelada := map[string]bool{}
+	vendaNoCSV := map[string]bool{}
 	for _, s := range linhas {
-		if s["CATEGORIA"] == "Cancelamento" && s["STONE ID"] != "" {
-			if v, err := centavos(s["VALOR BRUTO"]); err == nil {
-				cancelada[fmt.Sprintf("%s|%s|%d", s["STONE ID"], s["Nº DA PARCELA"], -v)] = true
-			}
+		if s["STONE ID"] == "" {
+			continue
+		}
+		v, err := centavos(s["VALOR BRUTO"])
+		if err != nil {
+			continue
+		}
+		switch s["CATEGORIA"] {
+		case "Cancelamento":
+			cancelada[chave(s, -v)] = true
+		case "Venda":
+			vendaNoCSV[chave(s, v)] = true
 		}
 	}
 
 	for n, s := range linhas {
 		motivo := ""
-		band, okBand := bandeiras[strings.ToLower(s["BANDEIRA"])]
+		band, okBand := bandeiras[normaliza(s["BANDEIRA"])]
+		prod, okProd := tipoProduto(s["PRODUTO"])
 		switch {
+		case s["CATEGORIA"] == "Cancelamento":
+			motivo = "Cancelamento (venda cancelada no mesmo período)"
+			if v, err := centavos(s["VALOR BRUTO"]); err == nil && !vendaNoCSV[chave(s, -v)] {
+				// A venda nao esta neste CSV: provavelmente ja foi paga e baixada antes.
+				motivo = motivoCancelOutro
+				res.CancelOutroPeriodo++
+			}
+		case s["CATEGORIA"] == "Balanceamento de Saldo":
+			motivo = "Ajuste interno da Stone (Balanceamento de Saldo)"
 		case s["CATEGORIA"] != "Venda":
 			motivo = "Não é venda (" + s["CATEGORIA"] + ")"
 		case s["ÚLTIMO STATUS"] != "Pago":
@@ -255,6 +319,8 @@ func Converter(caminho string) (*Resultado, error) {
 			motivo = "Linha sem Stone ID"
 		case !okBand:
 			motivo = "Bandeira sem código conhecido (" + s["BANDEIRA"] + ")"
+		case !okProd:
+			motivo = "Produto sem tipo conhecido (" + s["PRODUTO"] + ")"
 		case len(s["DATA DA VENDA"]) < 19 || len(s["DATA DE VENCIMENTO"]) < 10:
 			motivo = "Data da venda ou de vencimento inválida"
 		}
@@ -268,7 +334,7 @@ func Converter(caminho string) (*Resultado, error) {
 			}
 			if bruto <= 0 {
 				motivo = "Valor bruto zerado ou negativo"
-			} else if cancelada[fmt.Sprintf("%s|%s|%d", s["STONE ID"], s["Nº DA PARCELA"], bruto)] {
+			} else if cancelada[chave(s, bruto)] {
 				motivo = "Venda cancelada (há cancelamento do mesmo valor)"
 			}
 		}
@@ -296,7 +362,7 @@ func Converter(caminho string) (*Resultado, error) {
 		porData[dtCred] = append(porData[dtCred], []string{
 			"10", "0", zfill(s["STONECODE"], 15), dtVenda, sid, sid, sid, "",
 			strconv.FormatInt(bruto, 10), qtdOut, strconv.FormatInt(liquido, 10), "", dtCred, "", parcOut,
-			"C", "0", "369", "0", "000000", "", strconv.FormatInt(taxa, 10), strconv.FormatInt(perc, 10),
+			prod, "0", redeStone, "0", "000000", "", strconv.FormatInt(taxa, 10), strconv.FormatInt(perc, 10),
 			"", "", "", band, dtVenda, hrVenda, "", "", "0", hrVenda, "3", "0", dtVenda, sid, "0"})
 	}
 
@@ -334,6 +400,10 @@ func Converter(caminho string) (*Resultado, error) {
 		w.UseCRLF = true
 		w.Write([]string{"MOTIVO", "CATEGORIA", "DATA DA VENDA", "VENCIMENTO", "BANDEIRA", "PRODUTO",
 			"STONE ID", "QTD PARCELAS", "PARCELA", "VALOR BRUTO", "VALOR LIQUIDO", "STATUS"})
+		// O que exige acao (estorno no WinThor) vai para o topo da conferencia.
+		sort.SliceStable(conf, func(i, j int) bool {
+			return conf[i][0] == motivoCancelOutro && conf[j][0] != motivoCancelOutro
+		})
 		w.WriteAll(conf)
 		w.Flush()
 		res.confConteudo = b.Bytes()
@@ -368,6 +438,10 @@ func (r *Resultado) Resumo() string {
 	}
 	if r.NaoConvert > 0 {
 		fmt.Fprintf(&b, "\n%d linhas não convertidas (ver conferência)", r.NaoConvert)
+	}
+	if r.CancelOutroPeriodo > 0 {
+		fmt.Fprintf(&b, "\n⚠ %d cancelamento(s) de venda já baixada: estornar no WinThor (ver topo da conferência)",
+			r.CancelOutroPeriodo)
 	}
 	return b.String()
 }

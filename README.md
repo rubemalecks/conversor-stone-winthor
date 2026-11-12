@@ -27,13 +27,33 @@ Entra no arquivo da 1503 cada linha do CSV que:
 - tenha categoria **Venda**;
 - tenha último status **Pago**;
 - tenha **Stone ID**;
-- seja de uma bandeira com código conhecido (**Mastercard `0007`, Visa `0008`, Elo `0004`**);
+- seja de uma bandeira com código conhecido (veja a tabela abaixo);
+- tenha produto **Crédito** ou **Débito** (pré-pago incluso);
 - tenha valor bruto positivo;
 - **não** tenha cancelamento do mesmo Stone ID, mesma parcela e mesmo valor.
 
 O resto vai para o arquivo **`<nome-do-csv>-conferencia.csv`**, salvo na mesma pasta. Ele traz o **motivo** de cada linha ter ficado de fora.
 
-Para cada parcela, o programa calcula a taxa (bruto − líquido) e o percentual da taxa, e coloca o **Stone ID no campo NSU**. A rotina 1503 encontra o título comparando esse campo com `PCPREST.NSUHOST`.
+Para cada parcela, o programa calcula a taxa (bruto − líquido, incluindo o desconto de antecipação) e o percentual da taxa, e coloca o **Stone ID no campo NSU**. A rotina 1503 encontra o título comparando esse campo com `PCPREST.NSUHOST`.
+
+### Códigos usados (layout de retorno 4.1, Software Express / Fiserv)
+
+| Campo | Valor |
+|---|---|
+| 16 – Tipo de produto | `C` crédito, `D` débito (o pré-pago segue o tipo base) |
+| 18 – Rede (Tabela I) | `369` = Stone |
+| 27 – Bandeira (Tabela II) | Amex `0001`, Cabal `0002`, Diners `0003`, Elo `0004`, Hipercard `0005`, Mastercard `0007`, Visa `0008`, JCB `0030` |
+
+Fonte: [Return File 4.1](https://docs.apis-fiserv.com/latam/docs/conciliador-retorno-41) e [Code Table](https://docs.apis-fiserv.com/latam/docs/code-table).
+
+### ⚠ Cancelamento de venda já baixada
+
+Se o CSV traz um **cancelamento** cuja venda **não está no mesmo CSV**, a venda provavelmente já foi paga e baixada num período anterior. A Stone desconta esse valor do repasse, normalmente junto com um "Balanceamento de Saldo". O programa:
+
+- mostra o aviso **"⚠ cancelamento(s) de venda já baixada: estornar no WinThor"** na janela;
+- coloca essas linhas **no topo da conferência**, com o motivo `ATENÇÃO: ... estornar a baixa no WinThor`.
+
+Nesse caso, o total do arquivo da 1503 fica maior que o valor que de fato caiu na conta. O estorno precisa ser feito à mão no WinThor.
 
 ## Antes de usar em outra empresa
 
@@ -42,9 +62,8 @@ O programa **não tem dados de nenhuma empresa gravados no código**: nenhum CNP
 | Ponto | Situação |
 |---|---|
 | **NSU = Stone ID** | Só dá baixa se os títulos de cartão estiverem gravados no WinThor com o Stone ID em `PCPREST.NSUHOST`. Isso depende da integração PDV/TEF de cada empresa. |
-| Campo fixo `369` | Provavelmente o código da adquirente no layout. Confirme no manual do layout 1 da 1503. |
-| Campo fixo `C` | Sai `C` (crédito) em **todas** as linhas, inclusive débito. Confirme se a 1503 diferencia. |
-| Outras bandeiras | Hipercard, Amex, Cabal etc. não têm código mapeado e vão para a conferência. Para incluí-las, acrescente os códigos em `bandeiras`, no `convert.go`. |
+| Bandeiras de débito | O débito sai com produto `D` e o código da bandeira "família" (Visa `0008`, Mastercard `0007`, Elo `0004`). A Tabela II também tem códigos só de débito (Visa Debit `0033`, Master Debit `0032`, Elo Debit `0034`). Se a 1503 da empresa estiver configurada com esses códigos, ajuste em `bandeiras`, no `convert.go`. |
+| Outras bandeiras | Bandeiras que não estão na tabela acima vão para a conferência. Para incluí-las, acrescente o código da Tabela II em `bandeiras`, no `convert.go`. |
 | Formato dos valores | O programa espera vírgula decimal (`1.524,33`), que é como a Stone exporta hoje. |
 
 ## Compilar

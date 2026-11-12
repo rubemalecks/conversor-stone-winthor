@@ -286,7 +286,7 @@ func converterArquivos(arquivos []string) {
 			caixa(filepath.Base(a)+"\n\n"+err.Error(), mbIconError)
 			continue
 		}
-		alerta = len(res.Arquivos) != 1
+		alerta = len(res.Arquivos) != 1 || res.CancelOutroPeriodo > 0
 		if aviso := res.AvisoDatas(); aviso != "" {
 			caixa(aviso, mbIconWarning)
 		}
