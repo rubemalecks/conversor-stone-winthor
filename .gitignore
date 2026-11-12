@@ -1,0 +1,7 @@
+# Executaveis gerados (distribuidos pelas Releases do GitHub)
+dist/
+*.exe
+
+# Arquivos de teste / dados reais de clientes: nunca versionar
+*.csv
+!testdata/*.csv
