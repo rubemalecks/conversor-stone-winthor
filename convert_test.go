@@ -42,7 +42,7 @@ func TestConverter(t *testing.T) {
 		"123456;Venda;30/10/2026 15:00:00;02/12/2026;Visa;Crédito;222;3;2;100,000000;97,500000;Pago\n" +
 		"123456;Venda;30/10/2026 16:00:00;01/12/2026;Elo;Débito;333;1;1;50,000000;49,000000;Pago\n" +
 		"123456;Cancelamento;30/10/2026 17:00:00;01/12/2026;Elo;Débito;333;1;1;-50,000000;-49,000000;Pago\n" +
-		"123456;Venda;30/10/2026 18:00:00;01/12/2026;Sorocred;Crédito;444;1;1;10,000000;9,000000;Pago\n" +
+		"123456;Venda;30/10/2026 18:00:00;01/12/2026;BandeiraInventada;Crédito;444;1;1;10,000000;9,000000;Pago\n" +
 		"123456;Venda;30/10/2026 18:00:00;02/12/2026;Visa;Crédito;555;1;1;10,000000;9,000000;Previsto\n"
 	dir := t.TempDir()
 	origem := filepath.Join(dir, "stone.csv")
@@ -135,6 +135,36 @@ func TestBandeirasProdutoECancelOutroPeriodo(t *testing.T) {
 	}
 	if !strings.Contains(res.Resumo(), "estornar no WinThor") {
 		t.Errorf("resumo sem o aviso de estorno: %s", res.Resumo())
+	}
+}
+
+func TestCodigoBandeira(t *testing.T) {
+	casos := []struct{ bandeira, produto, quer string }{
+		{"MasterCard", "C", "0007"}, {"MasterCard", "D", "0007"},
+		{"Visa", "D", "0008"}, {"Elo", "C", "0004"},
+		{"AmericanExpress", "C", "0001"}, {"American Express", "C", "0001"}, {"Amex", "C", "0001"},
+		{"Hipercard", "C", "0005"}, {"Hiper", "C", "0031"}, {"Hiper", "D", "0022"},
+		{"Banescard", "C", "0029"}, {"Banescard", "D", "0019"},
+		{"Siscred", "C", "0011"}, {"Siscred", "D", "0012"},
+		{"Diners Club", "C", "0003"}, {"Cabal", "D", "0002"}, {"JCB", "C", "0030"},
+		{"Maestro", "D", "0006"}, {"Visa Electron", "D", "0009"}, {"UnionPay", "C", "0015"},
+		{"Sorocred", "C", "0013"}, {"CredZ", "C", "0021"}, {"Ourocard", "C", "0035"},
+	}
+	for _, c := range casos {
+		if got, ok := codigoBandeira(c.bandeira, c.produto); !ok || got != c.quer {
+			t.Errorf("codigoBandeira(%q, %q) = %q, %v; quer %q", c.bandeira, c.produto, got, ok, c.quer)
+		}
+	}
+	if _, ok := codigoBandeira("BandeiraInventada", "C"); ok {
+		t.Error("bandeira desconhecida deveria falhar")
+	}
+	// Todo codigo usado precisa existir na Tabela II (0001-0035).
+	for nome, b := range bandeiras {
+		for _, c := range []string{b.credito, b.debito} {
+			if len(c) != 4 || c < "0001" || c > "0035" {
+				t.Errorf("%s: código %q fora da Tabela II", nome, c)
+			}
+		}
 	}
 }
 

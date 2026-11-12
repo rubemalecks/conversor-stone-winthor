@@ -40,9 +40,28 @@ Para cada parcela, o programa calcula a taxa (bruto − líquido, incluindo o de
 
 | Campo | Valor |
 |---|---|
-| 16 – Tipo de produto | `C` crédito, `D` débito (o pré-pago segue o tipo base) |
+| 16 – Tipo de produto | `C` crédito, `D` débito, `V` voucher (o pré-pago segue o tipo base) |
 | 18 – Rede (Tabela I) | `369` = Stone |
-| 27 – Bandeira (Tabela II) | Amex `0001`, Cabal `0002`, Diners `0003`, Elo `0004`, Hipercard `0005`, Mastercard `0007`, Visa `0008`, JCB `0030` |
+| 27 – Bandeira (Tabela II) | veja a tabela abaixo |
+
+**Bandeiras reconhecidas.** É a Tabela II completa, menos os códigos de dinheiro, cheque, TEF e bandeira própria.
+
+| Bandeira | Crédito | Débito | | Bandeira | Crédito | Débito |
+|---|---|---|---|---|---|---|
+| Amex / American Express | `0001` | `0001` | | Sorocred | `0013` | `0013` |
+| Cabal | `0002` | `0002` | | CredSystem | `0014` | `0014` |
+| Diners Club | `0003` | `0003` | | UnionPay (CUP) | `0015` | `0015` |
+| Elo | `0004` | `0004` | | Banricompras | `0016` | `0016` |
+| Hipercard | `0005` | `0005` | | Verdecard | `0017` | `0017` |
+| Maestro | `0006` | `0006` | | Agiplan | `0018` | `0018` |
+| Mastercard | `0007` | `0007` | | **Banescard** | `0029` | `0019` |
+| Visa | `0008` | `0008` | | Esplanada | `0020` | `0020` |
+| Visa Electron | `0009` | `0009` | | CredZ | `0021` | `0021` |
+| Alelo | `0010` | `0010` | | **Hiper** (≠ Hipercard) | `0031` | `0022` |
+| **Siscred** | `0011` | `0012` | | Avista | `0023` | `0023` |
+| JCB | `0030` | `0030` | | CRF / Atac / Ourocard | `0024` / `0025` / `0035` | igual |
+
+Uma bandeira que não esteja na tabela vai para a conferência como "Bandeira sem código conhecido". O nome é comparado sem acentos, espaços e maiúsculas, então "American Express", "AmericanExpress" e "AMEX" são reconhecidos. Para incluir um nome novo, acrescente uma linha em `bandeiras`, no `convert.go`.
 
 Fonte: [Return File 4.1](https://docs.apis-fiserv.com/latam/docs/conciliador-retorno-41) e [Code Table](https://docs.apis-fiserv.com/latam/docs/code-table).
 
@@ -62,8 +81,7 @@ O programa **não tem dados de nenhuma empresa gravados no código**: nenhum CNP
 | Ponto | Situação |
 |---|---|
 | **NSU = Stone ID** | Só dá baixa se os títulos de cartão estiverem gravados no WinThor com o Stone ID em `PCPREST.NSUHOST`. Isso depende da integração PDV/TEF de cada empresa. |
-| Bandeiras de débito | O débito sai com produto `D` e o código da bandeira "família" (Visa `0008`, Mastercard `0007`, Elo `0004`). A Tabela II também tem códigos só de débito (Visa Debit `0033`, Master Debit `0032`, Elo Debit `0034`). Se a 1503 da empresa estiver configurada com esses códigos, ajuste em `bandeiras`, no `convert.go`. |
-| Outras bandeiras | Bandeiras que não estão na tabela acima vão para a conferência. Para incluí-las, acrescente o código da Tabela II em `bandeiras`, no `convert.go`. |
+| Bandeiras de débito | O débito sai com produto `D` e o código da bandeira "família" (Visa `0008`, Mastercard `0007`, Elo `0004`). A Tabela II também tem códigos só de débito (Visa Debit `0033`, Master Debit `0032`, Elo Debit `0034`). Se a 1503 da empresa estiver configurada com esses códigos, mude `usarCodigoDebitoProprio` para `true` no `convert.go`. |
 | Formato dos valores | O programa espera vírgula decimal (`1.524,33`), que é como a Stone exporta hoje. |
 
 ## Compilar

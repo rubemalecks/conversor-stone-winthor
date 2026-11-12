@@ -14,32 +14,84 @@ import (
 	"unicode/utf8"
 )
 
-// Codigo da bandeira (campo 27) conforme a Tabela II do layout de retorno 4.1 da
-// Software Express/Fiserv. A chave e o nome da bandeira no CSV da Stone, normalizado
-// (minusculas, sem acentos e sem espacos).
-var bandeiras = map[string]string{
-	"americanexpress": "0001", "amex": "0001",
-	"cabal":  "0002",
-	"diners": "0003", "dinersclub": "0003",
-	"elo":       "0004",
-	"hipercard": "0005", "hiper": "0005",
-	"mastercard": "0007", "master": "0007",
-	"visa": "0008",
-	"jcb":  "0030",
+// codBandeira e o codigo da bandeira (campo 27) na Tabela II do layout de retorno 4.1
+// da Software Express/Fiserv. Algumas bandeiras tem um codigo para credito e outro
+// para debito; nas demais os dois sao iguais.
+type codBandeira struct{ credito, debito string }
+
+func mesmo(c string) codBandeira { return codBandeira{c, c} }
+
+// bandeiras: Tabela II completa (https://docs.apis-fiserv.com/latam/docs/code-table),
+// exceto 0000 (nao informado), 0026-0028 (dinheiro, TEF, cheque) e 9999 (bandeira
+// propria). A chave e o nome da bandeira no CSV da Stone, normalizado (ver normaliza);
+// ha apelidos para os nomes que a Stone pode usar.
+var bandeiras = map[string]codBandeira{
+	"amex": mesmo("0001"), "americanexpress": mesmo("0001"),
+	"cabal":  mesmo("0002"),
+	"diners": mesmo("0003"), "dinersclub": mesmo("0003"), "dinners": mesmo("0003"), "dinnersclub": mesmo("0003"),
+	"elo":        mesmo("0004"),
+	"hipercard":  mesmo("0005"),
+	"maestro":    mesmo("0006"),
+	"mastercard": mesmo("0007"), "master": mesmo("0007"),
+	"visa":         mesmo("0008"),
+	"visaelectron": mesmo("0009"), "electron": mesmo("0009"),
+	"alelo":      mesmo("0010"),
+	"siscred":    {"0011", "0012"},
+	"sorocred":   mesmo("0013"),
+	"credsystem": mesmo("0014"),
+	"cup":        mesmo("0015"), "unionpay": mesmo("0015"), "chinaunionpay": mesmo("0015"),
+	"banricompras": mesmo("0016"),
+	"verdecard":    mesmo("0017"),
+	"agiplan":      mesmo("0018"),
+	"banescard":    {"0029", "0019"},
+	"esplanada":    mesmo("0020"),
+	"credz":        mesmo("0021"),
+	"hiper":        {"0031", "0022"}, // Hiper e diferente de Hipercard
+	"avista":       mesmo("0023"),
+	"crf":          mesmo("0024"),
+	"atac":         mesmo("0025"),
+	"jcb":          mesmo("0030"),
+	"ourocard":     mesmo("0035"),
+}
+
+// usarCodigoDebitoProprio troca, no debito, Visa/Mastercard/Elo pelos codigos so de
+// debito da Tabela II (Visa Debit 0033, Master Debit 0032, Elo Debit 0034). Fica
+// desligado: o debito sai com o codigo da bandeira e o tipo de produto D. Ligue se
+// a rotina 1503 da empresa estiver configurada com os codigos de debito.
+const usarCodigoDebitoProprio = false
+
+var codigoDebitoProprio = map[string]string{"0008": "0033", "0007": "0032", "0004": "0034"}
+
+// codigoBandeira devolve o campo 27 para a bandeira e o tipo de produto (C/D).
+func codigoBandeira(bandeira, produto string) (string, bool) {
+	b, ok := bandeiras[normaliza(bandeira)]
+	if !ok {
+		return "", false
+	}
+	if produto != "D" {
+		return b.credito, true
+	}
+	if usarCodigoDebitoProprio {
+		if d, ok := codigoDebitoProprio[b.debito]; ok {
+			return d, true
+		}
+	}
+	return b.debito, true
 }
 
 // Codigo da rede Stone (campo 18) na Tabela I do layout 4.1.
 const redeStone = "369"
 
-// normaliza deixa o texto em minusculas, sem acentos e sem espacos.
+// normaliza deixa o texto em minusculas, sem acentos, espacos e pontuacao.
 var semAcento = strings.NewReplacer("á", "a", "à", "a", "â", "a", "ã", "a", "é", "e", "ê", "e",
-	"í", "i", "ó", "o", "ô", "o", "õ", "o", "ú", "u", "ç", "c", " ", "", "-", "", "_", "")
+	"í", "i", "ó", "o", "ô", "o", "õ", "o", "ú", "u", "ç", "c",
+	" ", "", "-", "", "_", "", ".", "", "'", "", "&", "", "/", "")
 
 func normaliza(s string) string {
 	return semAcento.Replace(strings.ToLower(strings.TrimSpace(s)))
 }
 
-// tipoProduto devolve o campo 16 do layout: C (credito) ou D (debito).
+// tipoProduto devolve o campo 16 do layout: C (credito), D (debito) ou V (voucher).
 // Pre-pago segue o tipo base ("Debito Pre-pago" -> D).
 func tipoProduto(produto string) (string, bool) {
 	p := normaliza(produto)
@@ -48,6 +100,8 @@ func tipoProduto(produto string) (string, bool) {
 		return "D", true
 	case strings.HasPrefix(p, "credito"):
 		return "C", true
+	case strings.HasPrefix(p, "voucher"):
+		return "V", true
 	}
 	return "", false
 }
@@ -299,8 +353,8 @@ func Converter(caminho string) (*Resultado, error) {
 
 	for n, s := range linhas {
 		motivo := ""
-		band, okBand := bandeiras[normaliza(s["BANDEIRA"])]
 		prod, okProd := tipoProduto(s["PRODUTO"])
+		band, okBand := codigoBandeira(s["BANDEIRA"], prod)
 		switch {
 		case s["CATEGORIA"] == "Cancelamento":
 			motivo = "Cancelamento (venda cancelada no mesmo período)"

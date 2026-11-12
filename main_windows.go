@@ -87,18 +87,18 @@ const (
 
 	timerAbrir    = 1
 	segundosAbrir = 3 // espera antes de abrir a pasta automaticamente
-	wmDropFiles  = 0x0233
+	wmDropFiles   = 0x0233
 
 	wsCaption       = 0x00C00000
 	wsSysMenu       = 0x00080000
 	wsMinimizeBox   = 0x00020000
 	wsExAcceptFiles = 0x00000010
 
-	dtCenter      = 0x1
-	dtRight       = 0x2
-	dtVCenter     = 0x4
-	dtWordBreak   = 0x10
-	dtSingleLine  = 0x20
+	dtCenter       = 0x1
+	dtRight        = 0x2
+	dtVCenter      = 0x4
+	dtWordBreak    = 0x10
+	dtSingleLine   = 0x20
 	dtNoPrefix     = 0x800
 	dtPathEllipsis = 0x4000
 	dtEndEllipsis  = 0x8000
@@ -199,8 +199,8 @@ var (
 
 // Estado mostrado na janela.
 var (
-	hwndMain   uintptr
-	hIcone     uintptr
+	hwndMain    uintptr
+	hIcone      uintptr
 	textoZona   string
 	alerta      bool
 	pastaSaida  string
